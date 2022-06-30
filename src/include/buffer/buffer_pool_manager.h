@@ -13,7 +13,7 @@
 #pragma once
 
 #include <list>
-#include <mutex>  // NOLINT
+#include <shared_mutex>  // NOLINT
 #include <unordered_map>
 
 #include "buffer/clock_replacer.h"
@@ -152,6 +152,12 @@ class BufferPoolManager {
    */
   void FlushAllPagesImpl();
 
+  /**
+   * select a victim frame from the free list or replacer.
+   * @return the frame id, INVALID_PAGE_ID if the victim could not be found
+   */
+  frame_id_t GetVictimFrameId();
+
   /** Number of pages in the buffer pool. */
   size_t pool_size_;
   /** Array of buffer pool pages. */
@@ -167,6 +173,6 @@ class BufferPoolManager {
   /** List of free pages. */
   std::list<frame_id_t> free_list_;
   /** This latch protects shared data structures. We recommend updating this comment to describe what it protects. */
-  std::mutex latch_;
+  std::shared_mutex latch_;
 };
 }  // namespace bustub

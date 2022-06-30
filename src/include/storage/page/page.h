@@ -66,6 +66,22 @@ class Page {
   /** Sets the page LSN. */
   inline void SetLSN(lsn_t lsn) { memcpy(GetData() + OFFSET_LSN, &lsn, sizeof(lsn_t)); }
 
+  /**
+   * update the meta data of page
+   * @param page_id the page id
+   * @param pin_count the pin count
+   * @param is_dirty is page dirty
+   * @param reset_memory whether to reset the memory of page
+   */
+  void update(page_id_t page_id, int pin_count, bool is_dirty, bool reset_memory = false) {
+    page_id_ = page_id;
+    pin_count_ = pin_count;
+    is_dirty_ = is_dirty;
+    if (reset_memory) {
+      ResetMemory();
+    }
+  }
+
  protected:
   static_assert(sizeof(page_id_t) == 4);
   static_assert(sizeof(lsn_t) == 4);
