@@ -16,7 +16,7 @@
 
 namespace bustub {
 
-ClockReplacer::ClockReplacer(size_t num_pages) : clock_hand_(-1) {
+ClockReplacer::ClockReplacer(size_t num_pages) {
   for (size_t i = 0; i < num_pages; ++i) {
     frames_.push_back(std::make_tuple(false, false));
   }
@@ -25,14 +25,12 @@ ClockReplacer::ClockReplacer(size_t num_pages) : clock_hand_(-1) {
 ClockReplacer::~ClockReplacer() = default;
 
 bool ClockReplacer::Victim(frame_id_t *frame_id) {
-  assert(static_cast<size_t>(*frame_id) < frames_.size());
   if (Size() == 0) {
     return false;
   }
 
   std::lock_guard<std::shared_mutex> lock(mutex_);
   while (true) {
-    clock_hand_ = (clock_hand_ + 1) % frames_.size();
     auto &[contains, ref] = frames_[clock_hand_];
     if (contains) {
       if (ref) {
@@ -43,6 +41,7 @@ bool ClockReplacer::Victim(frame_id_t *frame_id) {
         return true;
       }
     }
+    clock_hand_ = (clock_hand_ + 1) % frames_.size();
   }
 }
 
