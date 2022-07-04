@@ -94,6 +94,22 @@ class HashTableBlockPage {
   bool IsReadable(slot_offset_t bucket_ind) const;
 
  private:
+  /**
+   * Returns one bit of array
+   *
+   * @param bucket_ind index to look at
+   * @return the bit
+   */
+  bool GetBit(const std::atomic_char *array, slot_offset_t bucket_ind) const;
+
+  /**
+   * Set one bit of array
+   *
+   * @param bucket_ind index to look at
+   * @param value whether to set the bit
+   */
+  void SetBit(std::atomic_char *array, slot_offset_t bucket_ind, bool value);
+
   std::atomic_char occupied_[(BLOCK_ARRAY_SIZE - 1) / 8 + 1];
 
   // 0 if tombstone/brand new (never occupied), 1 otherwise.

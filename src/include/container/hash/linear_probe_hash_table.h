@@ -87,10 +87,63 @@ class LinearProbeHashTable : public HashTable<KeyType, ValueType, KeyComparator>
   size_t GetSize();
 
  private:
+  enum class LockType { READ = 0, WRITE = 1 };
+
+  /**
+   * Performs a point query on the hash table.
+   * @param key the key to look up
+   * @return the tuple contains slot index, block page index and bucket index
+   */
+  std::tuple<size_t, page_id_t, slot_offset_t> GetIndex(const KeyType &key);
+
+  /**
+   * linear probe step forward
+   * @param bucket_index the bucket index
+   * @param block_index the hash table block page index
+   * @param header_page hash table header page
+   * @param raw_block_page raw hash table block page
+   * @param block_page hash table block page
+   * @param lock_type lock type of block page
+   */
+  void Step(slot_offset_t *bucket_index, page_id_t *block_index, HashTableHeaderPage *header_page, Page *raw_block_page,
+            HASH_TABLE_BLOCK_TYPE *block_page, LockType lockType);
+
+  /**
+   * determine if the (key, pair)s are equal
+   * @param block_page hash table block page
+   * @param bucket_index the bucket index
+   * @param key the key to lookup
+   * @param value the value to lookup
+   * @return true if the (key, pair)s are equal, false otherwise
+   */
+  inline bool IsMatch(HASH_TABLE_BLOCK_TYPE *block_page, slot_offset_t bucket_index, const KeyType &key,
+               const ValueType &value){
+    return !comparator_(key, block_page->KeyAt(bucket_index)) && value == block_page->ValueAt(bucket_index);
+  }
+
+  /**
+   * cast raw page to hash table header page
+   * @param page raw page fetched from buffer pool manager
+   * @return the hash table header page
+   */
+  inline HashTableHeaderPage *HeaderPageCast(Page *page) {
+    return reinterpret_cast<HashTableHeaderPage *>(page->GetData());
+  }
+
+  /**
+   * cast raw page to hash table block page
+   * @param page raw page fetched from buffer pool manager
+   * @return the hash table block page
+   */
+  inline HASH_TABLE_BLOCK_TYPE *BlockPageCast(Page *page) {
+    return reinterpret_cast<HASH_TABLE_BLOCK_TYPE *>(page->GetData());
+  }
+
   // member variable
   page_id_t header_page_id_;
   BufferPoolManager *buffer_pool_manager_;
   KeyComparator comparator_;
+  size_t num_buckets;
 
   // Readers includes inserts and removes, writer is only resize
   ReaderWriterLatch table_latch_;
