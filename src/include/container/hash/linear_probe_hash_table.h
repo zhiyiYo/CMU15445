@@ -90,6 +90,13 @@ class LinearProbeHashTable : public HashTable<KeyType, ValueType, KeyComparator>
   enum class LockType { READ = 0, WRITE = 1 };
 
   /**
+   * initialize header page and allocate block pages for it
+   * @param page the hash table header page
+   * @param num_buckets the number of block pages
+   */
+  void InitHeaderPage(HashTableHeaderPage *page, size_t num_buckets);
+
+  /**
    * Performs a point query on the hash table.
    * @param key the key to look up
    * @return the tuple contains slot index, block page index and bucket index
@@ -105,8 +112,8 @@ class LinearProbeHashTable : public HashTable<KeyType, ValueType, KeyComparator>
    * @param block_page hash table block page
    * @param lock_type lock type of block page
    */
-  void Step(slot_offset_t *bucket_index, page_id_t *block_index, HashTableHeaderPage *header_page, Page *raw_block_page,
-            HASH_TABLE_BLOCK_TYPE *block_page, LockType lockType);
+  void StepForward(slot_offset_t *bucket_index, page_id_t *block_index, HashTableHeaderPage *header_page,
+                   Page *raw_block_page, [[maybe_unused]] HASH_TABLE_BLOCK_TYPE *block_page, LockType lockType);
 
   /**
    * determine if the (key, pair)s are equal
@@ -117,7 +124,7 @@ class LinearProbeHashTable : public HashTable<KeyType, ValueType, KeyComparator>
    * @return true if the (key, pair)s are equal, false otherwise
    */
   inline bool IsMatch(HASH_TABLE_BLOCK_TYPE *block_page, slot_offset_t bucket_index, const KeyType &key,
-               const ValueType &value){
+                      const ValueType &value) {
     return !comparator_(key, block_page->KeyAt(bucket_index)) && value == block_page->ValueAt(bucket_index);
   }
 
