@@ -274,7 +274,8 @@ TEST(BufferPoolManagerTest, NewPage) {
   for (size_t i = 0; i < buffer_pool_size; ++i) {
     auto *page = bpm->NewPage(&page_id_temp);
     ASSERT_NE(nullptr, page);
-    EXPECT_EQ(i, page_id_temp);                 // Added by Jigao
+    EXPECT_EQ(page->GetPageId(), page_id_temp);
+    EXPECT_EQ(i, page_id_temp);  // Added by Jigao
     snprintf(page->GetData(), PAGE_SIZE, "%s", strings[i]);
     EXPECT_EQ(0, strcmp(page->GetData(), strings[i]));
   }

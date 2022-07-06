@@ -111,8 +111,9 @@ TEST(HashTableTest, HashTableFullTest) {
   auto *disk_manager = new DiskManager("test.db");
   auto *bpm = new BufferPoolManager(50, disk_manager);
 
-  using Local_MappingType = std::pair<int, int>;
-  const size_t LOCAL_BLOCK_ARRAY_SIZE = (4 * PAGE_SIZE / (4 * sizeof(Local_MappingType) + 1));
+  // using Local_MappingType = std::pair<int, int>;
+  // const size_t LOCAL_BLOCK_ARRAY_SIZE = (4 * PAGE_SIZE / (4 * sizeof(Local_MappingType) + 1));
+  const size_t LOCAL_BLOCK_ARRAY_SIZE = 2000;
 
   // force to have two block pages
   LinearProbeHashTable<int, int, IntComparator> ht("blah", bpm, IntComparator(), LOCAL_BLOCK_ARRAY_SIZE + 1,
@@ -149,7 +150,6 @@ TEST(HashTableTest, HashTableRemoveTest) {
     EXPECT_EQ(1, res.size()) << "Failed to insert " << i << std::endl;
     EXPECT_EQ(2 * i, res[0]);
   }
-
 
   // delete first half values
   for (int i = 0; i < 1000 / 2; i++) {
@@ -229,7 +229,6 @@ TEST(HashTableTest, HashTableMixdedTest) {
     EXPECT_EQ(2 * i, res[0]);
   }
 
-
   // check the existing values
   for (int i = 1000 / 2; i < 1000; i++) {
     if (i % 2 != 0) {
@@ -288,7 +287,6 @@ TEST(HashTableTest, HashTableResizeTest) {
     EXPECT_EQ(1, res.size()) << "Failed to insert " << i << std::endl;
     EXPECT_EQ(2 * i, res[0]);
   }
-
 
   // check value
   for (int i = 0; i < 2000; i++) {

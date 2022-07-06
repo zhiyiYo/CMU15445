@@ -29,13 +29,14 @@ HASH_TABLE_TYPE::LinearProbeHashTable(const std::string &name, BufferPoolManager
                                       HashFunction<KeyType> hash_fn)
     : buffer_pool_manager_(buffer_pool_manager),
       comparator_(comparator),
-      num_buckets(num_buckets),
+      num_buckets_(num_buckets),
+      num_pages_((num_buckets - 1) / BLOCK_ARRAY_SIZE + 1),
+      last_block_array_size_(num_buckets - (num_pages_ - 1) * BLOCK_ARRAY_SIZE),
       hash_fn_(std::move(hash_fn)) {
   auto page = buffer_pool_manager->NewPage(&header_page_id_);
   page->WLatch();
 
-  auto header_page = HeaderPageCast(page);
-  InitHeaderPage(header_page, num_buckets);
+  InitHeaderPage(HeaderPageCast(page));
 
   page->WUnlatch();
   buffer_pool_manager_->UnpinPage(header_page_id_, true);
@@ -45,16 +46,11 @@ template <typename KeyType, typename ValueType, typename KeyComparator>
 bool HASH_TABLE_TYPE::GetValue(Transaction *transaction, const KeyType &key, std::vector<ValueType> *result) {
   table_latch_.RLock();
 
-  // get the header page
-  auto raw_header_page = buffer_pool_manager_->FetchPage(header_page_id_);
-  raw_header_page->RLatch();
-  auto header_page = HeaderPageCast(raw_header_page);
-
   // get slot index, block page index and bucket index according to key
   auto [slot_index, block_index, bucket_index] = GetIndex(key);
 
   // get block page that contains the key
-  auto raw_block_page = buffer_pool_manager_->FetchPage(header_page->GetBlockPageId(block_index));
+  auto raw_block_page = buffer_pool_manager_->FetchPage(page_ids_[block_index]);
   raw_block_page->RLatch();
   auto block_page = BlockPageCast(raw_block_page);
 
@@ -65,8 +61,7 @@ bool HASH_TABLE_TYPE::GetValue(Transaction *transaction, const KeyType &key, std
       result->push_back(block_page->ValueAt(bucket_index));
     }
 
-    // step forward
-    StepForward(&bucket_index, &block_index, header_page, raw_block_page, block_page, LockType::READ);
+    StepForward(bucket_index, block_index, raw_block_page, block_page, LockType::READ);
 
     // break loop if we have returned to original position
     if (block_index * BLOCK_ARRAY_SIZE + bucket_index == slot_index) {
@@ -77,8 +72,6 @@ bool HASH_TABLE_TYPE::GetValue(Transaction *transaction, const KeyType &key, std
   // unlock
   raw_block_page->RUnlatch();
   buffer_pool_manager_->UnpinPage(raw_block_page->GetPageId(), false);
-  raw_header_page->RUnlatch();
-  buffer_pool_manager_->UnpinPage(header_page_id_, false);
   table_latch_.RUnlock();
   return result->size() > 0;
 }
@@ -86,48 +79,40 @@ bool HASH_TABLE_TYPE::GetValue(Transaction *transaction, const KeyType &key, std
 template <typename KeyType, typename ValueType, typename KeyComparator>
 bool HASH_TABLE_TYPE::Insert(Transaction *transaction, const KeyType &key, const ValueType &value) {
   table_latch_.RLock();
+  auto success = InsertImpl(transaction, key, value);
+  table_latch_.RUnlock();
+  return success;
+}
 
-  // get the header page
-  auto raw_header_page = buffer_pool_manager_->FetchPage(header_page_id_);
-  raw_header_page->RLatch();
-  auto header_page = HeaderPageCast(raw_header_page);
-
+template <typename KeyType, typename ValueType, typename KeyComparator>
+bool HASH_TABLE_TYPE::InsertImpl(Transaction *transaction, const KeyType &key, const ValueType &value) {
   // get slot index, block page index and bucket index according to key
   auto [slot_index, block_index, bucket_index] = GetIndex(key);
 
   // get block page that contains the key
-  auto raw_block_page = buffer_pool_manager_->FetchPage(header_page->GetBlockPageId(block_index));
+  auto raw_block_page = buffer_pool_manager_->FetchPage(page_ids_[block_index]);
   raw_block_page->WLatch();
   auto block_page = BlockPageCast(raw_block_page);
 
   bool success = true;
   while (!block_page->Insert(bucket_index, key, value)) {
     // return false if (key, value) pair already exists
-    if (IsMatch(block_page, bucket_index, key, value)) {
+    if (block_page->IsReadable(bucket_index) && IsMatch(block_page, bucket_index, key, value)) {
       success = false;
       break;
     }
 
-    // step forward
-    StepForward(&bucket_index, &block_index, header_page, raw_block_page, block_page, LockType::WRITE);
+    StepForward(bucket_index, block_index, raw_block_page, block_page, LockType::WRITE);
 
     // resize hash table if we have returned to original position
     if (block_index * BLOCK_ARRAY_SIZE + bucket_index == slot_index) {
       raw_block_page->WUnlatch();
-      buffer_pool_manager_->UnpinPage(raw_block_page->GetPageId(), success);
-      raw_header_page->RUnlatch();
-      buffer_pool_manager_->UnpinPage(header_page_id_, false);
+      buffer_pool_manager_->UnpinPage(raw_block_page->GetPageId(), false);
 
-      // resize
-      Resize(header_page->NumBlocks() * BLOCK_ARRAY_SIZE);
-
-      // recalculate index
-      raw_header_page = buffer_pool_manager_->FetchPage(header_page_id_);
-      raw_header_page->WLatch();
-      header_page = HeaderPageCast(raw_header_page);
+      Resize(num_pages_);
       std::tie(slot_index, block_index, bucket_index) = GetIndex(key);
 
-      raw_block_page = buffer_pool_manager_->FetchPage(header_page->GetBlockPageId(block_index));
+      raw_block_page = buffer_pool_manager_->FetchPage(page_ids_[block_index]);
       raw_block_page->WLatch();
       block_page = BlockPageCast(raw_block_page);
     }
@@ -135,9 +120,6 @@ bool HASH_TABLE_TYPE::Insert(Transaction *transaction, const KeyType &key, const
 
   raw_block_page->WUnlatch();
   buffer_pool_manager_->UnpinPage(raw_block_page->GetPageId(), success);
-  raw_header_page->RUnlatch();
-  buffer_pool_manager_->UnpinPage(header_page_id_, false);
-  table_latch_.RUnlock();
   return success;
 }
 
@@ -145,16 +127,11 @@ template <typename KeyType, typename ValueType, typename KeyComparator>
 bool HASH_TABLE_TYPE::Remove(Transaction *transaction, const KeyType &key, const ValueType &value) {
   table_latch_.RLock();
 
-  // get the header page
-  auto raw_header_page = buffer_pool_manager_->FetchPage(header_page_id_);
-  raw_header_page->RLatch();
-  auto header_page = HeaderPageCast(raw_header_page);
-
   // get slot index, block page index and bucket index according to key
   auto [slot_index, block_index, bucket_index] = GetIndex(key);
 
   // get block page that contains the key
-  auto raw_block_page = buffer_pool_manager_->FetchPage(header_page->GetBlockPageId(block_index));
+  auto raw_block_page = buffer_pool_manager_->FetchPage(page_ids_[block_index]);
   raw_block_page->WLatch();
   auto block_page = BlockPageCast(raw_block_page);
 
@@ -172,7 +149,7 @@ bool HASH_TABLE_TYPE::Remove(Transaction *transaction, const KeyType &key, const
     }
 
     // step forward
-    StepForward(&bucket_index, &block_index, header_page, raw_block_page, block_page, LockType::WRITE);
+    StepForward(bucket_index, block_index, raw_block_page, block_page, LockType::WRITE);
 
     // break loop if we have returned to original position
     if (block_index * BLOCK_ARRAY_SIZE + bucket_index == slot_index) {
@@ -182,8 +159,6 @@ bool HASH_TABLE_TYPE::Remove(Transaction *transaction, const KeyType &key, const
 
   raw_block_page->WUnlatch();
   buffer_pool_manager_->UnpinPage(raw_block_page->GetPageId(), success);
-  raw_header_page->RUnlatch();
-  buffer_pool_manager_->UnpinPage(header_page_id_, false);
   table_latch_.RUnlock();
   return success;
 }
@@ -191,42 +166,42 @@ bool HASH_TABLE_TYPE::Remove(Transaction *transaction, const KeyType &key, const
 template <typename KeyType, typename ValueType, typename KeyComparator>
 void HASH_TABLE_TYPE::Resize(size_t initial_size) {
   table_latch_.WLock();
+  num_buckets_ = 2 * initial_size;
+  num_pages_ = (num_buckets_ - 1) / BLOCK_ARRAY_SIZE + 1;
+  last_block_array_size_ = num_buckets_ - (num_pages_ - 1) * BLOCK_ARRAY_SIZE;
 
-  // get the old header page
-  auto raw_old_header_page = buffer_pool_manager_->FetchPage(header_page_id_);
-  raw_old_header_page->RLatch();
-  auto old_header_page = HeaderPageCast(raw_old_header_page);
+  // save the old header page id
+  auto old_header_page_id = header_page_id_;
+  std::vector<page_id_t> old_page_ids(page_ids_);
 
   // get the new header page
   auto raw_header_page = buffer_pool_manager_->NewPage(&header_page_id_);
   raw_header_page->WLatch();
-  auto header_page = HeaderPageCast(raw_header_page);
-  InitHeaderPage(header_page, 2 * initial_size / BLOCK_ARRAY_SIZE);
+  InitHeaderPage(HeaderPageCast(raw_header_page));
 
   // move (key, value) pairs to new space
-  for (size_t block_index = 0; block_index < old_header_page->NumBlocks(); ++block_index) {
-    auto raw_block_page = buffer_pool_manager_->FetchPage(old_header_page->GetBlockPageId(block_index));
+  for (size_t block_index = 0; block_index < num_pages_; ++block_index) {
+    auto old_page_id = old_page_ids[block_index];
+    auto raw_block_page = buffer_pool_manager_->FetchPage(old_page_id);
     raw_block_page->RLatch();
-    HASH_TABLE_BLOCK_TYPE *block_page = BlockPageCast(raw_block_page);
+    auto block_page = BlockPageCast(raw_block_page);
 
     // move (key, value) pair from each readable slot
-    for (slot_offset_t bucket_index = 0; bucket_index < BLOCK_ARRAY_SIZE; ++bucket_index) {
+    for (slot_offset_t bucket_index = 0; bucket_index < GetBlockArraySize(block_index); ++bucket_index) {
       if (block_page->IsReadable(bucket_index)) {
-        Insert(nullptr, block_page->KeyAt(bucket_index), block_page->ValueAt(bucket_index));
+        InsertImpl(nullptr, block_page->KeyAt(bucket_index), block_page->ValueAt(bucket_index));
       }
     }
 
     // delete old page
     raw_block_page->RUnlatch();
-    buffer_pool_manager_->UnpinPage(raw_block_page->GetPageId(), false);
-    buffer_pool_manager_->DeletePage(raw_block_page->GetPageId());
+    buffer_pool_manager_->UnpinPage(old_page_id, false);
+    buffer_pool_manager_->DeletePage(old_page_id);
   }
 
   raw_header_page->WUnlatch();
-  buffer_pool_manager_->UnpinPage(header_page_id_, true);
-  raw_old_header_page->RUnlatch();
-  buffer_pool_manager_->UnpinPage(raw_old_header_page->GetPageId(), false);
-  buffer_pool_manager_->DeletePage(raw_old_header_page->GetPageId());
+  buffer_pool_manager_->UnpinPage(header_page_id_, false);
+  buffer_pool_manager_->DeletePage(old_header_page_id);
   table_latch_.WUnlock();
 }
 
@@ -239,43 +214,42 @@ size_t HASH_TABLE_TYPE::GetSize() {
   raw_header_page->RLatch();
   HashTableHeaderPage *header_page = HeaderPageCast(raw_header_page);
 
-  // get the number of block page
-  size_t num_buckets = header_page->NumBlocks();
+  // get the size of header page
+  size_t num_buckets = header_page->GetSize();
 
   raw_header_page->RUnlatch();
   buffer_pool_manager_->UnpinPage(header_page_id_, false);
   table_latch_.RUnlock();
-  return num_buckets * BLOCK_ARRAY_SIZE;
+  return num_buckets;
 }
 
 template <typename KeyType, typename ValueType, typename KeyComparator>
-void HASH_TABLE_TYPE::InitHeaderPage(HashTableHeaderPage *page, size_t num_buckets) {
-  page->SetPageId(header_page_id_);
-  page->SetSize(num_buckets);
+void HASH_TABLE_TYPE::InitHeaderPage(HashTableHeaderPage *header_page) {
+  header_page->SetPageId(header_page_id_);
+  header_page->SetSize(num_buckets_);
 
-  page_id_t page_id;
-  for (size_t i = 0; i < num_buckets; ++i) {
+  page_ids_.clear();
+  for (size_t i = 0; i < num_pages_; ++i) {
+    page_id_t page_id;
     buffer_pool_manager_->NewPage(&page_id);
-    page->AddBlockPageId(page_id);
     buffer_pool_manager_->UnpinPage(page_id, false);
+    header_page->AddBlockPageId(page_id);
+    page_ids_.push_back(page_id);
   }
 }
 
 template <typename KeyType, typename ValueType, typename KeyComparator>
-std::tuple<size_t, page_id_t, slot_offset_t> HASH_TABLE_TYPE::GetIndex(const KeyType &key) {
-  size_t slot_index = hash_fn_.GetHash(key) % (BLOCK_ARRAY_SIZE * num_buckets);
-  page_id_t block_index = slot_index / BLOCK_ARRAY_SIZE;
-  slot_offset_t bucket_index = block_index % BLOCK_ARRAY_SIZE;
+auto HASH_TABLE_TYPE::GetIndex(const KeyType &key) -> std::tuple<slot_index_t, block_index_t, slot_offset_t> {
+  slot_index_t slot_index = hash_fn_.GetHash(key) % num_buckets_;
+  block_index_t block_index = slot_index / BLOCK_ARRAY_SIZE;
+  slot_offset_t bucket_index = slot_index % BLOCK_ARRAY_SIZE;
   return {slot_index, block_index, bucket_index};
 }
 
 template <typename KeyType, typename ValueType, typename KeyComparator>
-void HASH_TABLE_TYPE::StepForward(slot_offset_t *bucket_index, page_id_t *block_index, HashTableHeaderPage *header_page,
-                                  Page *raw_block_page, [[maybe_unused]]HASH_TABLE_BLOCK_TYPE * block_page,
-                                  LockType lockType) {
-  (*bucket_index)++;
-
-  if (*bucket_index != BLOCK_ARRAY_SIZE) {
+void HASH_TABLE_TYPE::StepForward(slot_offset_t &bucket_index, block_index_t &block_index, Page *&raw_block_page,
+                                  HASH_TABLE_BLOCK_TYPE *&block_page, LockType lockType) {
+  if (++bucket_index != GetBlockArraySize(block_index)) {
     return;
   }
 
@@ -285,14 +259,14 @@ void HASH_TABLE_TYPE::StepForward(slot_offset_t *bucket_index, page_id_t *block_
   } else {
     raw_block_page->WUnlatch();
   }
-  buffer_pool_manager_->UnpinPage(raw_block_page->GetPageId(), false);
+  buffer_pool_manager_->UnpinPage(page_ids_[block_index], false);
 
   // update index
-  *bucket_index = 0;
-  *block_index = (*block_index + 1) % header_page->NumBlocks();
+  bucket_index = 0;
+  block_index = (block_index + 1) % num_pages_;
 
   // update page
-  raw_block_page = buffer_pool_manager_->FetchPage(header_page->GetBlockPageId(*block_index));
+  raw_block_page = buffer_pool_manager_->FetchPage(page_ids_[block_index]);
   if (lockType == LockType::READ) {
     raw_block_page->RLatch();
   } else {

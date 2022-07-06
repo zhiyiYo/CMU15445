@@ -87,21 +87,22 @@ class LinearProbeHashTable : public HashTable<KeyType, ValueType, KeyComparator>
   size_t GetSize();
 
  private:
+  using slot_index_t = size_t;
+  using block_index_t = size_t;
   enum class LockType { READ = 0, WRITE = 1 };
 
   /**
    * initialize header page and allocate block pages for it
    * @param page the hash table header page
-   * @param num_buckets the number of block pages
    */
-  void InitHeaderPage(HashTableHeaderPage *page, size_t num_buckets);
+  void InitHeaderPage(HashTableHeaderPage *page);
 
   /**
-   * Performs a point query on the hash table.
-   * @param key the key to look up
-   * @return the tuple contains slot index, block page index and bucket index
+   * get index according to key
+   * @param key the key to be hashed
+   * @return a tuple contains slot index, block page index and bucket index
    */
-  std::tuple<size_t, page_id_t, slot_offset_t> GetIndex(const KeyType &key);
+  std::tuple<slot_index_t, block_index_t, slot_offset_t> GetIndex(const KeyType &key);
 
   /**
    * linear probe step forward
@@ -112,8 +113,8 @@ class LinearProbeHashTable : public HashTable<KeyType, ValueType, KeyComparator>
    * @param block_page hash table block page
    * @param lock_type lock type of block page
    */
-  void StepForward(slot_offset_t *bucket_index, page_id_t *block_index, HashTableHeaderPage *header_page,
-                   Page *raw_block_page, [[maybe_unused]] HASH_TABLE_BLOCK_TYPE *block_page, LockType lockType);
+  void StepForward(slot_offset_t &bucket_index, block_index_t &block_index, Page *&raw_block_page,
+                   HASH_TABLE_BLOCK_TYPE *&block_page, LockType lockType);
 
   /**
    * determine if the (key, pair)s are equal
@@ -127,6 +128,15 @@ class LinearProbeHashTable : public HashTable<KeyType, ValueType, KeyComparator>
                       const ValueType &value) {
     return !comparator_(key, block_page->KeyAt(bucket_index)) && value == block_page->ValueAt(bucket_index);
   }
+
+  /**
+   * Inserts a key-value pair into the hash table.
+   * @param transaction the current transaction
+   * @param key the key to create
+   * @param value the value to be associated with the key
+   * @return true if insert succeeded, false otherwise
+   */
+  bool InsertImpl(Transaction *transaction, const KeyType &key, const ValueType &value);
 
   /**
    * cast raw page to hash table header page
@@ -146,11 +156,23 @@ class LinearProbeHashTable : public HashTable<KeyType, ValueType, KeyComparator>
     return reinterpret_cast<HASH_TABLE_BLOCK_TYPE *>(page->GetData());
   }
 
+  /**
+   * get the slot number of hash table block page
+   * @param block_index the index of hash table block page
+   * @return the slot number of block page
+   */
+  inline size_t GetBlockArraySize(block_index_t block_index){
+    return block_index < num_pages_ - 1 ? BLOCK_ARRAY_SIZE : last_block_array_size_;
+  }
+
   // member variable
   page_id_t header_page_id_;
   BufferPoolManager *buffer_pool_manager_;
   KeyComparator comparator_;
-  size_t num_buckets;
+  std::vector<page_id_t> page_ids_;
+  size_t num_buckets_;
+  size_t num_pages_;
+  size_t last_block_array_size_;
 
   // Readers includes inserts and removes, writer is only resize
   ReaderWriterLatch table_latch_;
