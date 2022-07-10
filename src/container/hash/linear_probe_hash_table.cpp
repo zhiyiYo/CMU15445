@@ -207,20 +207,7 @@ void HASH_TABLE_TYPE::Resize(size_t initial_size) {
 
 template <typename KeyType, typename ValueType, typename KeyComparator>
 size_t HASH_TABLE_TYPE::GetSize() {
-  table_latch_.RLock();
-
-  // get the header page
-  auto raw_header_page = buffer_pool_manager_->FetchPage(header_page_id_);
-  raw_header_page->RLatch();
-  HashTableHeaderPage *header_page = HeaderPageCast(raw_header_page);
-
-  // get the size of header page
-  size_t num_buckets = header_page->GetSize();
-
-  raw_header_page->RUnlatch();
-  buffer_pool_manager_->UnpinPage(header_page_id_, false);
-  table_latch_.RUnlock();
-  return num_buckets;
+  return num_buckets_;
 }
 
 template <typename KeyType, typename ValueType, typename KeyComparator>
