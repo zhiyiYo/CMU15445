@@ -30,6 +30,8 @@ namespace bustub {
 class Tuple {
   friend class TablePage;
 
+  friend class TmpTuplePage;
+
   friend class TableHeap;
 
   friend class TableIterator;

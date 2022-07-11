@@ -12,7 +12,10 @@
 
 #include "storage/page/hash_table_block_page.h"
 
+#include "common/util/hash_util.h"
 #include "storage/index/generic_key.h"
+#include "storage/index/hash_comparator.h"
+#include "storage/table/tmp_tuple.h"
 
 namespace bustub {
 
@@ -69,6 +72,7 @@ void HASH_TABLE_BLOCK_TYPE::SetBit(std::atomic_char *array, slot_offset_t bucket
 
 // DO NOT REMOVE ANYTHING BELOW THIS LINE
 template class HashTableBlockPage<int, int, IntComparator>;
+template class HashTableBlockPage<hash_t, TmpTuple, HashComparator>;
 template class HashTableBlockPage<GenericKey<4>, RID, GenericComparator<4>>;
 template class HashTableBlockPage<GenericKey<8>, RID, GenericComparator<8>>;
 template class HashTableBlockPage<GenericKey<16>, RID, GenericComparator<16>>;

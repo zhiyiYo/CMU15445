@@ -20,6 +20,9 @@
 #include "common/exception.h"
 #include "common/logger.h"
 #include "common/rid.h"
+#include "common/util/hash_util.h"
+#include "storage/index/hash_comparator.h"
+#include "storage/table/tmp_tuple.h"
 
 namespace bustub {
 
@@ -109,7 +112,10 @@ bool HASH_TABLE_TYPE::InsertImpl(Transaction *transaction, const KeyType &key, c
       raw_block_page->WUnlatch();
       buffer_pool_manager_->UnpinPage(raw_block_page->GetPageId(), false);
 
-      Resize(num_pages_);
+      table_latch_.RUnlock();
+      Resize(num_buckets_);
+      table_latch_.RLock();
+
       std::tie(slot_index, block_index, bucket_index) = GetIndex(key);
 
       raw_block_page = buffer_pool_manager_->FetchPage(page_ids_[block_index]);
@@ -263,7 +269,7 @@ void HASH_TABLE_TYPE::StepForward(slot_offset_t &bucket_index, block_index_t &bl
 }
 
 template class LinearProbeHashTable<int, int, IntComparator>;
-
+template class LinearProbeHashTable<hash_t, TmpTuple, HashComparator>;
 template class LinearProbeHashTable<GenericKey<4>, RID, GenericComparator<4>>;
 template class LinearProbeHashTable<GenericKey<8>, RID, GenericComparator<8>>;
 template class LinearProbeHashTable<GenericKey<16>, RID, GenericComparator<16>>;

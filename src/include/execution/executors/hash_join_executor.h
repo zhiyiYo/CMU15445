@@ -77,11 +77,11 @@ class SimpleHashJoinHashTable {
 };
 
 // TODO(student): when you are ready to attempt task 3, replace the using declaration!
-using HT = SimpleHashJoinHashTable;
+// using HT = SimpleHashJoinHashTable;
 
-// using HashJoinKeyType = ???;
-// using HashJoinValType = ???;
-// using HT = LinearProbeHashTable<HashJoinKeyType, HashJoinValType, HashComparator>;
+using HashJoinKeyType = hash_t;
+using HashJoinValType = TmpTuple;
+using HT = LinearProbeHashTable<HashJoinKeyType, HashJoinValType, HashComparator>;
 
 /**
  * HashJoinExecutor executes hash join operations.
@@ -143,6 +143,6 @@ class HashJoinExecutor : public AbstractExecutor {
   /** The hash table that we are using. */
   HT jht_;
   /** The number of buckets in the hash table. */
-  static constexpr uint32_t jht_num_buckets_ = 2;
+  static constexpr uint32_t jht_num_buckets_ = 1000;
 };
 }  // namespace bustub
