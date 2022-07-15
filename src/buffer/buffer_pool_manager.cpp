@@ -191,6 +191,14 @@ frame_id_t BufferPoolManager::GetVictimFrameId() {
     if (!replacer_->Victim(&frame_id)) {
       return INVALID_PAGE_ID;
     }
+
+    // flush log to disk when victim a dirty page
+    if (enable_logging) {
+      Page &page = pages_[frame_id];
+      if (page.IsDirty() && page.GetLSN() > log_manager_->GetPersistentLSN()) {
+        log_manager_->Flush(true);
+      }
+    }
   }
 
   return frame_id;
