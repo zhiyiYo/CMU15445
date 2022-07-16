@@ -53,7 +53,7 @@ void LogManager::RunFlushThread() {
  */
 void LogManager::StopFlushThread() {
   enable_logging = false;
-  Flush(true);
+  Flush();
   flush_thread_->join();
   delete flush_thread_;
   flush_thread_ = nullptr;
@@ -108,6 +108,8 @@ lsn_t LogManager::AppendLogRecord(LogRecord *log_record) {
 
     case LogRecordType::NEWPAGE:
       memcpy(log_buffer_ + pos, &log_record->prev_page_id_, sizeof(page_id_t));
+      pos += sizeof(page_id_t);
+      memcpy(log_buffer_ + pos, &log_record->page_id_, sizeof(page_id_t));
       break;
 
     default:
@@ -119,18 +121,17 @@ lsn_t LogManager::AppendLogRecord(LogRecord *log_record) {
   return log_record->lsn_;
 }
 
-void LogManager::Flush(bool is_force) {
+void LogManager::Flush() {
+  if (!enable_logging) {
+    return;
+  }
+
   std::unique_lock<std::mutex> lock(latch_);
   need_flush_ = true;
-
-  if (is_force) {
-    cv_.notify_one();
-  }
+  cv_.notify_one();
 
   // block thread until flush finished
-  if (enable_logging) {
-    cv_append_.wait(lock, [&] { return !need_flush_.load(); });
-  }
+  cv_append_.wait(lock, [&] { return !need_flush_.load(); });
 }
 
 }  // namespace bustub

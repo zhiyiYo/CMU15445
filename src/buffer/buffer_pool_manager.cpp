@@ -196,7 +196,7 @@ frame_id_t BufferPoolManager::GetVictimFrameId() {
     if (enable_logging) {
       Page &page = pages_[frame_id];
       if (page.IsDirty() && page.GetLSN() > log_manager_->GetPersistentLSN()) {
-        log_manager_->Flush(true);
+        log_manager_->Flush();
       }
     }
   }

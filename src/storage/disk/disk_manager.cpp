@@ -114,7 +114,7 @@ void DiskManager::ReadPage(page_id_t page_id, char *page_data) {
     // if file ends before reading PAGE_SIZE
     int read_count = db_io_.gcount();
     if (read_count < PAGE_SIZE) {
-      LOG_DEBUG("Read less than a page");
+      // LOG_DEBUG("Read less than a page");
       db_io_.clear();
       // std::cerr << "Read less than a page" << std::endl;
       memset(page_data + read_count, 0, PAGE_SIZE - read_count);

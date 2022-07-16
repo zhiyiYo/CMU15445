@@ -44,10 +44,8 @@ class LogManager {
   void RunFlushThread();
   void StopFlushThread();
 
-  /** flush log to disk
-   * @param is_force whether force to immediate flush
-   */
-  void Flush(bool is_force);
+  /* flush log to disk */
+  void Flush();
 
   lsn_t AppendLogRecord(LogRecord *log_record);
 
