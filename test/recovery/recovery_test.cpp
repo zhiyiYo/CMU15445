@@ -449,19 +449,19 @@ TEST(RecoveryTest, BasicUndoTestWithOneTxn) {
 }
 
 // NOLINTNEXTLINE
-TEST(RecoveryTest, DISABLED_CheckpointTest) {
+TEST(RecoveryTest, CheckpointTest) {
   remove("test.db");
   remove("test.log");
   BustubInstance *bustub_instance = new BustubInstance("test.db");
 
   EXPECT_FALSE(enable_logging);
-  LOG_INFO("Skip system recovering...");
+  // LOG_INFO("Skip system recovering...");
 
   bustub_instance->log_manager_->RunFlushThread();
   EXPECT_TRUE(enable_logging);
-  LOG_INFO("System logging thread running...");
+  // LOG_INFO("System logging thread running...");
 
-  LOG_INFO("Create a test table");
+  // LOG_INFO("Create a test table");
   Transaction *txn = bustub_instance->transaction_manager_->Begin();
   auto *test_table = new TableHeap(bustub_instance->buffer_pool_manager_, bustub_instance->lock_manager_,
                                    bustub_instance->log_manager_, txn);
@@ -550,10 +550,10 @@ TEST(RecoveryTest, DISABLED_CheckpointTest) {
   delete txn1;
   delete test_table;
 
-  LOG_INFO("Shutdown System");
+  // LOG_INFO("Shutdown System");
   delete bustub_instance;
 
-  LOG_INFO("Tearing down the system..");
+  // LOG_INFO("Tearing down the system..");
   remove("test.db");
   remove("test.log");
 }
